@@ -368,13 +368,19 @@ void loop() {
         out3 = ZEROV + p_ref_sum[0]*sin_array_ref[cycle_up] + p_ref_sum[1]*cos_array_ref[cycle_up];
         break;
        case MONITOR_RESIDUE_REF:
-         out3 = ZEROV + in0 - (p_ref_sum[0]*sin_array_ref[cycle_up] + p_ref_sum[1]*cos_array_ref[cycle_up]);
+         out3 = in0 - (p_ref_sum[0]*sin_array_ref[cycle_up] + p_ref_sum[1]*cos_array_ref[cycle_up]);
          break;
       case MONITOR_FIT_L1:
         out3 = ZEROV + p_l1_sum[0]*sin_array_l1[cycle_up] + p_l1_sum[1]*cos_array_l1[cycle_up];
         break;
+      case MONITOR_RESIDUE_L1:
+        out3 = in1 - (p_l1_sum[0]*sin_array_l1[cycle_up] + p_l1_sum[1]*cos_array_l1[cycle_up]);
+        break;
       case MONITOR_FIT_L2:
         out3 = ZEROV + p_l2_sum[0]*sin_array_l2[cycle_up] + p_l2_sum[1]*cos_array_l2[cycle_up];
+        break;
+      case MONITOR_RESIDUE_L2:
+        out3 = in2 - (p_l2_sum[0]*sin_array_l2[cycle_up] + p_l2_sum[1]*cos_array_l2[cycle_up]);
         break;
      }
   }
@@ -420,7 +426,6 @@ void parseSerial() {
       break;
     case 'r':
       EEPROM_readAnything(0, params);
-      // EEPROM_readAnything(sizeof(params), logger);      
       break;
     case 'i':
       // return ID
@@ -448,13 +453,12 @@ void parseSerial() {
       Serial.readBytes((char *) &params.set_phase_ref, sizeof(float)*3);
       evaluate_sin_cos();
       break;
-      
     case 'o':
       // change the output offset
       Serial.readBytes((char *) &params.output_offset_l1, sizeof(int)*2);
       break;
-
     case 'm':
+      // toggle serial log
       serial_log = !serial_log;
       break;
   }
