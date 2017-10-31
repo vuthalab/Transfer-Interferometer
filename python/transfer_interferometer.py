@@ -148,6 +148,16 @@ class TransferInterferometer:
         data_tuple = struct.unpack(struct_fmt, data)
         return data_tuple
 
+    def get_in0_array(self):
+        write_string = b'd'
+        self.ser.write(write_string)
+        # 3 wavelengths, 2 floats per step, N-steps per step, 4 bytes per float
+        struct_fmt = '<' + 'i'*N_STEPS
+        data = self.ser.read(N_STEPS*4)
+        print(len(data))
+        data_tuple = struct.unpack(struct_fmt, data)
+        return data_tuple
+
     def load_from_eeprom(self):
         self.ser.write(b'r')
 
@@ -281,3 +291,4 @@ def continuous_423_scan(offset=0.0):
 
 if __name__ == '__main__':
     transfer_interferometer = TransferInterferometer()
+

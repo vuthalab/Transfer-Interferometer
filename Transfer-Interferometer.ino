@@ -36,6 +36,8 @@
 #define PI 3.14159
 #define PI2 6.28318
 
+// Minimum fringe visibility required to reliably detect fringes
+// If fringe visibility suddenly drops, it's most likely an indication of a laser mode-hop
 #define MIN_FRINGE_VISIBILITY 27000.
 
 #define MONITOR_ERR_REF 1
@@ -54,6 +56,7 @@
 #define MONITOR_RESIDUE_L2 24
 
 
+// This struct has all the parameters that the muC needs to run
 struct Params {
   int ramp_amplitude;
 
@@ -86,9 +89,13 @@ int ramp_step_down;
 bool ramp_direction;
 
 int in0_array[N_STEPS];
+int in0_array2[N_STEPS];
+
+int in0_buffer;
 
 unsigned long current_time;
 
+// 3 matrices, one for each wavelength, each of size 2xN_STEPS
 float estimation_matrix[3*2*N_STEPS];
 
 float p_ref[2];
@@ -123,8 +130,10 @@ float cos_array_l2[N_STEPS];
 float phase_damp_l1;
 float phase_damp_l2;
 
+
 bool serial_log;
 
+// Pre-compute sin and cos required for monitoring the fit
 void computeData() {
   for(int i=0; i<N_STEPS; i++) {
     sin_array_ref[i] = sin(PI2*((float)i)*params.freq_ref/N_STEPS);
@@ -141,6 +150,8 @@ void computeData() {
 void setup() {
   SPI.setClockDivider(SPI_CLOCK_DIV2);
   Serial.begin(115200);
+
+  in0_buffer = 0;
   
   // put your setup code here, to run once:
   in0 = ZEROV;
@@ -256,7 +267,10 @@ void loop() {
   in3 = analog.read(3, false);
   
   if(ramp_direction) {
-    in0_array[cycle_up] = in0;
+    if(in0_buffer)
+      in0_array2[cycle_up] = in0;
+    else
+      in0_array[cycle_up] = in0;
 
     p_ref[0] += estimation_matrix[cycle_up]*((float)in0);
     p_ref[1] += estimation_matrix[cycle_up+N_STEPS]*((float)in0);
@@ -391,6 +405,11 @@ void loop() {
     if(cycle_down == N_STEPS_DOWN) {
       cycle_down = 0;
       ramp_direction = true;
+      if(in0_buffer)
+        in0_buffer = 0;
+      else
+        in0_buffer = 1;
+        
     }
   }
     
@@ -411,6 +430,7 @@ void loop() {
  * o - change the output offset on the l1 or l2 nm piezos
  * p - only change the interferometer locking phase
  * m - toggle serial monitoring
+ * d - write in0 buffer data
  */
 void parseSerial() {
   char byte_read = Serial.read();
@@ -460,6 +480,12 @@ void parseSerial() {
     case 'm':
       // toggle serial log
       serial_log = !serial_log;
+      break;
+    case 'd':
+      if(in0_buffer)
+        Serial.write((const uint8_t*)&in0_array2, N_STEPS*sizeof(int));
+      else
+        Serial.write((const uint8_t*)&in0_array, N_STEPS*sizeof(int));
       break;
   }
 }
