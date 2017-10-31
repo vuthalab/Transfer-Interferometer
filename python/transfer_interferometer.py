@@ -22,12 +22,12 @@ base_frequency = 2.94  # arb units
 params_default = (3000,  # scan amplitude (must be divisible by N_STEPS)
 
                   base_frequency, base_frequency*lam1/lam2, base_frequency*lam1/lam3,  # fit frequency
-                  0., 100.,
-                  50, 200,
-                  100., 200.,
+                  0., 100., # PI gain, reference
+                  50, 200,  # PI gain, l1
+                  100., 200.,  # PI gain, l2
 
-                  1.0, 0.5, -0.5,  # set phase
-                  0., 0., 0.,  # lock state
+                  1.0, 0.5, -0.5,  # set phase (-PI...PI)
+                  0., 0., 0.,  # lock state, 1=lock engaged
                   V2P5, V2P5,  # output offset
                   1)
 
@@ -93,20 +93,22 @@ class TransferInterferometer:
         self.ser = serial.Serial(serialport, baudrate=115200, timeout=4.0)
 
         time.sleep(4)  # wait for microcontroller to reboot
-        # self.params = self.get_params()
         self.params = list(params_default)
         self.set_params()
         time.sleep(0.1)
         self.send_matrix()
 
     def get_freqs(self):
+        """Return list of fitting frequencies."""
         return list(self.params[1:(1+3)])
 
     def idn(self):
+        """Read id of the microcontroller and return read string."""
         self.ser.write(b'i')
         return self.ser.readline()
 
     def get_params(self):
+        """Get params structure from the microcontroller and store it locally."""
         write_string = b'g'
         self.ser.write(write_string)
         data = self.ser.read(params_struct_size)
@@ -115,46 +117,50 @@ class TransferInterferometer:
         return data_tuple
 
     def set_params(self):
+        """Set params on the microcontroller."""
         data = struct.pack(params_struct_fmt, *self.params)
         self.ser.write(b's'+data)
 
     def set_scan_amplitude(self, new_amplitude):
-        self.params[0] = int(new_amplitude)
+        """Set scan amplitude on the microcontroller.
+
+        Scan amplitude should be a multiple of N_STEPS."""
+        self.params[0] = int(new_amplitude - new_amplitude % N_STEPS)
         self.set_params()
 
     def send_matrix(self, n_steps_skip=10):
-        n_steps = N_STEPS
+        """Set fitting matrices to the microcontroller."""
         freq_list = self.get_freqs()
-        send_array_780 = get_fitting_matrix(n_steps, freq_list[0], n_steps_skip)
-        send_array_423 = get_fitting_matrix(n_steps, freq_list[1], n_steps_skip)
-        send_array_453 = get_fitting_matrix(n_steps, freq_list[2], n_steps_skip)
+        send_array_ref = get_fitting_matrix(N_STEPS, freq_list[0], n_steps_skip)
+        send_array_l1 = get_fitting_matrix(N_STEPS, freq_list[1], n_steps_skip)
+        send_array_l2 = get_fitting_matrix(N_STEPS, freq_list[2], n_steps_skip)
 
-        send_array = np.concatenate([send_array_780, send_array_423,
-                                     send_array_453])
+        send_array = np.concatenate([send_array_ref, send_array_l1,
+                                     send_array_l2])
 
         struct_fmt = '<' + 'f'*len(send_array)
         data = struct.pack(struct_fmt, *list(send_array))
         self.ser.write(b'a'+data)
 
     def get_matrix(self):
-        n_steps = N_STEPS
+        """Get fitting matrix from the microcontroller."""
+        N_STEPS = N_STEPS
         write_string = b'z'
         self.ser.write(write_string)
         # 3 wavelengths, 2 floats per step, N-steps per step, 4 bytes per float
-        num_floats = 3*2*n_steps
+        num_floats = 3*2*N_STEPS
         struct_fmt = '<' + 'f'*num_floats
         data = self.ser.read(num_floats*4)
-        print(len(data))
         data_tuple = struct.unpack(struct_fmt, data)
         return data_tuple
 
     def get_in0_array(self):
+        """Get the data read on the in0 channel over one ramp cycle."""
         write_string = b'd'
         self.ser.write(write_string)
-        # 3 wavelengths, 2 floats per step, N-steps per step, 4 bytes per float
         struct_fmt = '<' + 'i'*N_STEPS
+        # N_STEPS ints, 4 bytes per int
         data = self.ser.read(N_STEPS*4)
-        print(len(data))
         data_tuple = struct.unpack(struct_fmt, data)
         return data_tuple
 
@@ -172,35 +178,35 @@ class TransferInterferometer:
         self.set_lock_state(0, 0, 0)
         self.ser.close()
 
-    def gain_pi_780(self, p_gain, i_gain):
+    def gain_pi_ref(self, p_gain, i_gain):
         self.params[4:(4+2)] = [p_gain, i_gain]
         self.set_params()
 
-    def gain_pi_423(self, p_gain, i_gain):
+    def gain_pi_l1(self, p_gain, i_gain):
         self.params[6:(6+2)] = [p_gain, i_gain]
         self.set_params()
 
-    def gain_pi_453(self, p_gain, i_gain):
+    def gain_pi_l2(self, p_gain, i_gain):
         self.params[8:(8+2)] = [p_gain, i_gain]
         self.set_params()
 
-    def set_lock_phase(self, phase_780, phase_423, phase_453):
-        self.params[10:(10+3)] = [phase_780, phase_423, phase_453]
-        data = struct.pack('<fff', phase_780, phase_423, phase_453)
+    def set_lock_phase(self, phase_ref, phase_l1, phase_l2):
+        self.params[10:(10+3)] = [phase_ref, phase_l1, phase_l2]
+        data = struct.pack('<fff', phase_ref, phase_l1, phase_l2)
         self.ser.write(b'p'+data)
 
-    def set_lock_state(self, state_780, state_423, state_453):
-        self.params[13:(13+3)] = [state_780, state_423, state_453]
-        data = struct.pack('<fff', state_780, state_423, state_453)
+    def set_lock_state(self, state_ref, state_l1, state_l2):
+        self.params[13:(13+3)] = [state_ref, state_l1, state_l2]
+        data = struct.pack('<fff', state_ref, state_l1, state_l2)
         self.ser.write(b'l'+data)
 
-    def set_output_offset(self, off_423, off_453):
-        self.params[16:(16+2)] = [off_423, off_453]
-        data = struct.pack('<ii', off_423, off_453)
+    def set_output_offset(self, off_l1, off_l2):
+        self.params[16:(16+2)] = [off_l1, off_l2]
+        data = struct.pack('<ii', off_l1, off_l2)
         self.ser.write(b'o'+data)
 
-    def set_fit_frequencies(self, freq_780, freq_423, freq_453, n_steps_skip=10):
-        self.params[1:(1+3)] = [freq_780, freq_423, freq_453]
+    def set_fit_frequencies(self, freq_ref, freq_l1, freq_l2, n_steps_skip=10):
+        self.params[1:(1+3)] = [freq_ref, freq_l1, freq_l2]
         self.set_params()
         time.sleep(0.1)
         self.send_matrix(n_steps_skip)
@@ -245,7 +251,7 @@ class TransferInterferometer:
                     data = self.ser.read(1000)
                     print(data)
 
-def scan_423(start_phase=-3.14, stop_phase=3.14, n_steps=10, time_delay=0.1):
+def scan_l1(start_phase=-3.14, stop_phase=3.14, n_steps=10, time_delay=0.1):
     phase_array = np.linspace(start_phase, stop_phase, n_steps)
     for p in phase_array:
         transfer_interferometer.set_lock_phase(0, p, 0)
@@ -278,13 +284,13 @@ def scan_n_steps():
         time.sleep(1)
         transfer_interferometer.log_serial(n_rounds=20)
 
-def continuous_423_scan(offset=0.0):
+def continuous_l1_scan(offset=0.0):
     transfer_interferometer.set_lock_phase(0,offset-2, 0)
     time.sleep(0.2)
     done = False
     while not done:
         try:
-            scan_423(-2+offset, 2+offset, 20, 0.05)
+            scan_l1(-2+offset, 2+offset, 20, 0.05)
 
         except KeyboardInterrupt:
             done = True
