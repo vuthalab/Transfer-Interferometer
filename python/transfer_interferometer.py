@@ -7,8 +7,7 @@ import os
 
 N_STEPS = 50  # number of voltage steps per scan
 
-params_struct_size = 4*7 + 4*12  # size in bytes of the parameter struct sent to the arduino
-params_struct_fmt = '<'+'i'*1+'f'*12 + 'i'*6
+
 
 ZEROV = 32768
 V2P5 = 49512
@@ -30,8 +29,13 @@ params_default = (3000,  # scan amplitude (must be divisible by N_STEPS)
                   1.0, 0.5, -0.5,  # set phase (-PI...PI)
                   0., 0., 0.,  # lock state, 1=lock engaged
                   V2P5, V2P5,  # output offset
-                  1)
+                  1, # monitor channel
+                  3000, 3000,  # ramp_amplitude_l1, ramp_amplitude_l2
+                  100, 100,  # n_steps_l1, n_steps_l2
+                  0, 0)  # ramp_enabled_l1, ramp_enabled_l2
 
+params_struct_size = 4*13 + 4*12  # size in bytes of the parameter struct sent to the arduino
+params_struct_fmt = '<'+'i'*1+'f'*12 + 'i'*12
 
 def get_fitting_matrix(n_steps, fit_freq, n_steps_skip=10):
     """Generate fitting matrix to extract phase of the interferometer signal.
@@ -172,7 +176,7 @@ class TransferInterferometer:
         self.ser.write(b'w')
 
     def set_monitor_channel(self, channel_number):
-        self.params[-1] = int(channel_number)
+        self.params[18] = int(channel_number)
         self.set_params()
 
     def close(self):

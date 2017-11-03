@@ -71,6 +71,11 @@ struct Params {
 
   int output_offset_l1, output_offset_l2;
   int monitor_channel;
+
+  int ramp_amplitude_l1, ramp_amplitude_l2;
+  int ramp_steps_l1, ramp_steps_l2;
+  int ramp_state_l1, ramp_state_l2;
+
 };
 
 Params params;
@@ -80,13 +85,21 @@ int out0, out1, out2, out3;
 int ramp_mean;
 int ramp_offset;
 
+int ramp_offset_l1;
+int ramp_offset_l2;
+
 int cycle_up = 0;
 int cycle_down = 0;
 
 int ramp_step;
 int ramp_step_down;
 
+int ramp_step_l1;
+int ramp_step_l2;
+
 bool ramp_direction;
+bool ramp_direction_l1;
+bool ramp_direction_l2;
 
 int in0_array[N_STEPS];
 int in0_array2[N_STEPS];
@@ -210,6 +223,14 @@ void setup() {
   params.lock_state_ref = false;
   params.lock_state_l1 = false;
   params.lock_state_l2 = false;
+
+  params.ramp_amplitude_l1 = 3000;
+  params.ramp_amplitude_l2 = 3000;
+  params.ramp_steps_l1 = 100;
+  params.ramp_steps_l2 = 100;
+  params.ramp_state_l1 = 0;
+  params.ramp_state_l2 = 0;
+  
   serial_log = false;
   current_time = micros();
 }
