@@ -14,14 +14,15 @@ ZEROV = 32768
 V2P5 = 49512
 
 lam1 = 780.03  # nm
-lam2 = 852.12  # nm
+lam2 = 423.0  # nm
+mul1 = 0.96
 lam3 = 453.0   # nm
 
 base_frequency = 2.94  # arb units
 
 params_default = (3000,  # scan amplitude (must be divisible by N_STEPS)
 
-                  base_frequency, base_frequency*lam1/lam2, base_frequency*lam1/lam3,  # fit frequency
+                  base_frequency, base_frequency*lam1/lam2*mul1, base_frequency*lam1/lam3,  # fit frequency
                   0., 100., # PI gain, reference
                   50, 200,  # PI gain, l1
                   100., 200.,  # PI gain, l2
@@ -253,11 +254,12 @@ class TransferInterferometer:
 
 def scan_l1(start_phase=-3.14, stop_phase=3.14, n_steps=10, time_delay=0.1):
     phase_array = np.linspace(start_phase, stop_phase, n_steps)
-    for p in phase_array:
-        transfer_interferometer.set_lock_phase(0, p, 0)
-        time.sleep(time_delay)
+    p1 = phase_array[:n_steps/2]
+    p2 = phase_array[n_steps/2:]
 
-    for p in phase_array[::-1]:
+    p_all = np.concatenate([p2, p2[::-1], p1[::-1], p1])
+
+    for p in p_all:
         transfer_interferometer.set_lock_phase(0, p, 0)
         time.sleep(time_delay)
 
@@ -284,13 +286,13 @@ def scan_n_steps():
         time.sleep(1)
         transfer_interferometer.log_serial(n_rounds=20)
 
-def continuous_l1_scan(offset=0.0):
-    transfer_interferometer.set_lock_phase(0,offset-2, 0)
+def continuous_l1_scan(offset=0.0, scanrange=3, time_delay=0.1):
+    transfer_interferometer.set_lock_phase(0,offset-scanrange, 0)
     time.sleep(0.2)
     done = False
     while not done:
         try:
-            scan_l1(-2+offset, 2+offset, 20, 0.05)
+            scan_l1(-scanrange+offset, scanrange+offset, 20, time_delay)
 
         except KeyboardInterrupt:
             done = True
