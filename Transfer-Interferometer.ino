@@ -1,25 +1,25 @@
 /*
  * Transfer Interferometer
- * 
- * Tested with the Chipkit uc32 microcontroller - 
+ *
+ * Tested with the Chipkit uc32 microcontroller -
  * https://reference.digilentinc.com/reference/microprocessor/uc32/start
- * 
- * along with the Analog Shield for the DACs and ADCs - 
+ *
+ * along with the Analog Shield for the DACs and ADCs -
  * http://store.digilentinc.com/analog-shield-high-performance-add-on-board-for-the-arduino-uno/
- * 
+ *
  * The transfer interferometer reads in three analog inputs from the analog shield:
- * 
+ *
  * in0 (A0 on shield): Interferometer signal for the reference laser
  * in1 (A1 on shield): Interferometer signal for locking laser 1
  * in2 (A2 on shield): Interferometer signal for locking laser 2
- * 
+ *
  * and has 4 outputs:
  * out0 (D0 on shield): Piezo control for scanning and locking the interferometer path length
  * out1 (D1 on shield): Piezo control for laser 1
  * out2 (D2 on shield): Piezo control for laser 2
  * out3 (D3 on shield): Monitor channel
  */
- 
+
 #include <EEPROM.h>
 #include <analogShield.h>
 #include <math.h>
@@ -73,7 +73,7 @@ struct Params {
   int monitor_channel;
 
   int ramp_amplitude_l1, ramp_amplitude_l2;
-  int ramp_steps_l1, ramp_steps_l2;
+  int ramp_n_steps_l1, ramp_n_steps_l2;
   int ramp_state_l1, ramp_state_l2;
 
 };
@@ -82,6 +82,9 @@ Params params;
 
 int in0, in1, in2, in3;
 int out0, out1, out2, out3;
+
+int out1_pid, out2_pid;
+
 int ramp_mean;
 int ramp_offset;
 
@@ -89,7 +92,12 @@ int ramp_offset_l1;
 int ramp_offset_l2;
 
 int cycle_up = 0;
+int cycle_up_l1 = 0;
+int cycle_up_l2 = 0;
+
 int cycle_down = 0;
+int cycle_down_l1 = 0;
+int cycle_down_l2 = 0;
 
 int ramp_step;
 int ramp_step_down;
@@ -165,13 +173,13 @@ void setup() {
   Serial.begin(115200);
 
   in0_buffer = 0;
-  
+
   // put your setup code here, to run once:
   in0 = ZEROV;
   in1 = ZEROV;
   in2 = ZEROV;
   in3 = ZEROV;
-  
+
   out0 = ZEROV;
   out1 = V2P5;
   out2 = ZEROV;
@@ -188,12 +196,12 @@ void setup() {
 
   params.gain_p_l2 = 100.;
   params.gain_i_l2 = 200.;
-  
+
   phase_ref = 0.0;
   accumulator_ref = 0.0;
 
   params.monitor_channel = MONITOR_ERR_REF;
-  
+
   params.freq_ref = 2.2;
   params.freq_l1 = 2.2/(423./780.);
   params.freq_l2 = 2.2/(453./780.);
@@ -205,11 +213,9 @@ void setup() {
   params.lock_state_ref = 0;
   params.lock_state_l1 = 0;
   params.lock_state_l2 = 0;
-  
+
   params.output_offset_l1 = V2P5;
   params.output_offset_l2 = V2P5;
-  
-  processParams();
 
   phase_damp_l1 = 0.0;
   phase_damp_l2 = 0.0;
@@ -226,11 +232,16 @@ void setup() {
 
   params.ramp_amplitude_l1 = 3000;
   params.ramp_amplitude_l2 = 3000;
-  params.ramp_steps_l1 = 100;
-  params.ramp_steps_l2 = 100;
+  params.ramp_n_steps_l1 = 100;
+  params.ramp_n_steps_l2 = 100;
   params.ramp_state_l1 = 0;
   params.ramp_state_l2 = 0;
-  
+
+  processParams();
+
+  out1_pid = 0;
+  out2_pid = 0;
+
   serial_log = false;
   current_time = micros();
 }
@@ -245,7 +256,20 @@ void processParams() {
 
   freq_ratio_l1 = params.freq_l1/params.freq_ref;
   freq_ratio_l2 = params.freq_l2/params.freq_ref;
-  
+
+  ramp_direction_l1 = true;
+  ramp_offset_l1 = -params.ramp_amplitude_l1;
+  ramp_step_l1 = 2*params.ramp_amplitude_l1/params.ramp_n_steps_l1;
+  cycle_up_l1 = 0;
+  cycle_down_l1 = 0;
+
+  ramp_direction_l2 = true;
+  ramp_offset_l2 = -params.ramp_amplitude_l2;
+  ramp_step_l2 = 2*params.ramp_amplitude_l2/params.ramp_n_steps_l2;
+  cycle_up_l2 = 0;
+  cycle_down_l2 = 0;
+
+
   evaluate_sin_cos();
   computeData();
 }
@@ -263,16 +287,16 @@ void evaluate_sin_cos() {
 
 double get_phase_difference(float *p_act, float *p_set) {
   float sinp, cosp;
-  float l2 = p_act[0]*p_act[0] + p_act[1]*p_act[1]; 
+  float l2 = p_act[0]*p_act[0] + p_act[1]*p_act[1];
   if(l2 < MIN_FRINGE_VISIBILITY) {
     // Most likely visibility dropped due to laser multi-moding
     return 0.0;
   }
   float invhypot = 1./sqrt(l2);
-  
+
   sinp = invhypot*(p_act[0]*p_set[0] - p_act[1]*p_set[1]);
   cosp = invhypot*(p_act[0]*p_set[1] + p_act[1]*p_set[0]);
-  return atan2(sinp, cosp);  
+  return atan2(sinp, cosp);
 }
 
 void loop() {
@@ -281,12 +305,12 @@ void loop() {
 
   unsigned long previous_time = current_time;
   current_time = micros();
-    
+
   in0 = analog.read(0, false);
   in1 = analog.read(1, false);
   in2 = analog.read(2, false);
   in3 = analog.read(3, false);
-  
+
   if(ramp_direction) {
     if(in0_buffer)
       in0_array2[cycle_up] = in0;
@@ -301,7 +325,7 @@ void loop() {
 
     p_l2[0] += estimation_matrix[cycle_up+2*N_STEPS]*((float)in2);
     p_l2[1] += estimation_matrix[cycle_up+3*N_STEPS]*((float)in2);
-    
+
     cycle_up += 1;
     ramp_offset += ramp_step;
     if(cycle_up == N_STEPS)
@@ -309,29 +333,29 @@ void loop() {
        cycle_up = 0;
        ramp_direction = false; // switch ramp direction
        // ramp done, reset fit parameters
-       
+
        p_ref_sum[0] = p_ref[0];
        p_ref_sum[1] = p_ref[1];
-       
+
        p_l1_sum[0] = p_l1[0];
        p_l1_sum[1] = p_l1[1];
-       
+
        p_l2_sum[0] = p_l2[0];
        p_l2_sum[1] = p_l2[1];
-       
+
        p_ref[0] = 0.0;
        p_ref[1] = 0.0;
-       
+
        p_l1[0] = 0.0;
        p_l1[1] = 0.0;
-       
+
        p_l2[0] = 0.0;
        p_l2[1] = 0.0;
-       
+
        phase_ref = get_phase_difference(p_ref_sum, p_ref_set);
        phase_l1 = get_phase_difference(p_l1_sum, p_l1_set);
        phase_l2 = get_phase_difference(p_l2_sum, p_l2_set);
-         
+
        if(params.lock_state_ref) {
          accumulator_ref += params.gain_i_ref * phase_ref;
          ramp_mean = ZEROV + (int)(accumulator_ref + params.gain_p_ref*phase_ref);
@@ -342,18 +366,19 @@ void loop() {
        }
        else {
          accumulator_ref = 0.0;
-         ramp_mean = ZEROV; 
+         ramp_mean = ZEROV;
        }
 
        if(params.lock_state_l1) {
          float pd = phase_l1 - phase_damp_l1;
          phase_damp_l1 *= 0.99;
          accumulator_l1 += params.gain_i_l1 * pd;
-         out1 = params.output_offset_l1 - (int)(accumulator_l1 + params.gain_p_l1*pd);
+         out1_pid = (int)(accumulator_l1 + params.gain_p_l1*pd);
+
        }
        else {
          accumulator_l1 = 0.0;
-         out1 = params.output_offset_l1;
+         out1_pid = 0;
          phase_damp_l1 = phase_l1;
        }
 
@@ -361,12 +386,11 @@ void loop() {
          float pd = phase_l2 - phase_damp_l2;
          phase_damp_l2 *= 0.99;
          accumulator_l2 += params.gain_i_l2 * pd;
-         out2 = params.output_offset_l2 - (int)(accumulator_l2 + params.gain_p_l2*pd);
-        
+         out2_pid = (int)(accumulator_l2 + params.gain_p_l2*pd);
        }
        else {
          accumulator_l2 = 0.0;
-         out2 = params.output_offset_l2;
+         out2_pid = 0;
          phase_damp_l2 = phase_l2;
        }
 
@@ -386,7 +410,7 @@ void loop() {
            break;
          case MONITOR_SET_PHASE_L1:
            out3 = ZEROV + (int)(params.set_phase_l1/PI*ZEROV);
-           break;       
+           break;
          case MONITOR_SET_PHASE_L2:
            out3 = ZEROV + (int)(params.set_phase_l2/PI*ZEROV);
            break;
@@ -430,13 +454,86 @@ void loop() {
         in0_buffer = 0;
       else
         in0_buffer = 1;
-        
+
     }
   }
-    
+
+
+  out1 = params.output_offset_l1 - out1_pid;
+  out2 = params.output_offset_l2 - out2_pid;
+
+  // ramp the l1 and l2 channels
+  if(params.ramp_state_l1) {
+    // we want to ramp the l1 channel
+    if(ramp_direction_l1) {
+      // we are ramping up
+      cycle_up_l1 += 1;
+      ramp_offset_l1 += ramp_step_l1;
+
+      if(cycle_up_l1 == params.ramp_n_steps_l1) {
+        // end of cycle up
+        cycle_up_l1 = 0;
+        ramp_direction_l1 = false;
+      }
+    }
+    else {
+      // ramping down
+      cycle_down_l1 += 1;
+      ramp_offset_l1 -= ramp_step_l1;
+      if(cycle_down_l1 == params.ramp_n_steps_l1) {
+        // end of cycle down
+        cycle_down_l1 = 0;
+        ramp_direction_l1 = true;
+      }
+
+    }
+    out1 += ramp_offset_l1;
+  }
+  else {
+    cycle_up_l1 = 0;
+    cycle_down_l1 = 0;
+    ramp_direction_l1 = true;
+    ramp_offset_l1 = -params.ramp_amplitude_l1;
+  }
+
+  // ramp the l2 laser
+  if(params.ramp_state_l2) {
+    // we want to ramp the l2 channel
+    if(ramp_direction_l2) {
+      // we are ramping up
+      cycle_up_l2 += 1;
+      ramp_offset_l2 += ramp_step_l2;
+
+      if(cycle_up_l2 == params.ramp_n_steps_l2) {
+        // end of cycle up
+        cycle_up_l2 = 0;
+        ramp_direction_l2 = false;
+      }
+    }
+    else {
+      // ramping down
+      cycle_down_l2 += 1;
+      ramp_offset_l2 -= ramp_step_l2;
+      if(cycle_down_l2 == params.ramp_n_steps_l2) {
+        // end of cycle down
+        cycle_down_l2 = 0;
+        ramp_direction_l2 = true;
+      }
+
+    }
+    out2 += ramp_offset_l2;
+  }
+  else {
+    cycle_up_l2 = 0;
+    cycle_down_l2 = 0;
+    ramp_direction_l2 = true;
+    ramp_offset_l2 = -params.ramp_amplitude_l2;
+  }
+
+
   out0 = ramp_mean + ramp_offset;
   analog.write(out0, out1, out2, out3, true);
-  
+
 }
 
 /*

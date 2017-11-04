@@ -30,8 +30,8 @@ params_default = (3000,  # scan amplitude (must be divisible by N_STEPS)
                   0., 0., 0.,  # lock state, 1=lock engaged
                   V2P5, V2P5,  # output offset
                   1, # monitor channel
-                  3000, 3000,  # ramp_amplitude_l1, ramp_amplitude_l2
-                  100, 100,  # n_steps_l1, n_steps_l2
+                  500, 500,  # ramp_amplitude_l1, ramp_amplitude_l2
+                  1000, 1000,  # n_steps_l1, n_steps_l2
                   0, 0)  # ramp_enabled_l1, ramp_enabled_l2
 
 params_struct_size = 4*13 + 4*12  # size in bytes of the parameter struct sent to the arduino
@@ -255,6 +255,22 @@ class TransferInterferometer:
                     self.ser.write('m')
                     data = self.ser.read(1000)
                     print(data)
+
+    def set_ramp_state(self, ramp_state_l1, ramp_state_l2):
+        self.params[23] = int(ramp_state_l1)
+        self.params[24] = int(ramp_state_l2)
+        self.set_params()
+
+    def set_ramp_n_steps(self, ns1, ns2):
+        self.params[21] = int(ns1)
+        self.params[22] = int(ns2)
+        self.set_params()
+
+    def set_ramp_amp(self, amp1, amp2):
+        self.params[19] = int(amp1)
+        self.params[20] = int(amp2)
+        self.set_params()
+
 
 def scan_l1(start_phase=-3.14, stop_phase=3.14, n_steps=10, time_delay=0.1):
     phase_array = np.linspace(start_phase, stop_phase, n_steps)
