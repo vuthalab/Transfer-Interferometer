@@ -24,7 +24,7 @@ params_default = (3000,  # scan amplitude (must be divisible by N_STEPS)
                   base_frequency, base_frequency*lam1/lam2*mul1, base_frequency*lam1/lam3,  # fit frequency
                   0., 100., # PI gain, reference
                   5, 20,  # PI gain, l1
-                  5., 100.,  # PI gain, l2
+                  -100., -1000.,  # PI gain, l2
 
                   1.0, 0.5, -0.5,  # set phase (-PI...PI)
                   0., 0., 0.,  # lock state, 1=lock engaged
@@ -293,6 +293,7 @@ def scan_l1(start_phase=-3.14, stop_phase=3.14, n_steps=10, time_delay=0.1):
         transfer_interferometer.set_lock_phase(0, p, 0)
         time.sleep(time_delay)
 
+
 def change_n_steps(nskip=10):
     transfer_interferometer.set_lock_state(0, 0, 0)
     transfer_interferometer.send_matrix(nskip)
@@ -316,6 +317,20 @@ def scan_n_steps():
         time.sleep(1)
         transfer_interferometer.log_serial(n_rounds=20)
 
+def unlock_all():
+    ti.set_lock_state(0, 0, 0)
+
+
+def stepl1(step_size=0.05):
+    """Convenience function to steps the phase of l1."""
+    ti.params[11] += step_size
+    ti.set_params()
+
+def stepl2(step_size=0.05):
+    """Convenience function to steps the phase of l2."""
+    ti.params[12] += step_size
+    ti.set_params()
+
 
 
 def continuous_l1_scan(offset=0.0, scanrange=3, time_delay=0.1):
@@ -330,5 +345,5 @@ def continuous_l1_scan(offset=0.0, scanrange=3, time_delay=0.1):
             done = True
 
 if __name__ == '__main__':
-    transfer_interferometer = TransferInterferometer()
+    ti = TransferInterferometer()
 
