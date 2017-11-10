@@ -269,7 +269,6 @@ void processParams() {
   cycle_up_l2 = 0;
   cycle_down_l2 = 0;
 
-
   evaluate_sin_cos();
   computeData();
 }
@@ -549,6 +548,7 @@ void loop() {
  * p - only change the interferometer locking phase
  * m - toggle serial monitoring
  * d - write in0 buffer data
+ * c - set current phase as the set phase
  */
 void parseSerial() {
   char byte_read = Serial.read();
@@ -605,6 +605,20 @@ void parseSerial() {
       else
         Serial.write((const uint8_t*)&in0_array, N_STEPS*sizeof(int));
       break;
+    case 'c':
+      // set current phase as the lock phase
+      char which_laser = Serial.read();
+      Serial.readBytes((char *) &which_laser, sizeof(char));
+      float zero_p[2] = {0.0, 1.0};
+      if(which_laser == '1') {
+        params.set_phase_l1 = -get_phase_difference(p_l1_sum, zero_p);
+        processParams();
+      }
+      else if(which_laser == '2') {
+        params.set_phase_l2 = -get_phase_difference(p_l2_sum, zero_p);
+        processParams();
+      }
+      break;      
   }
 }
 

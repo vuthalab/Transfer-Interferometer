@@ -23,8 +23,8 @@ params_default = (3000,  # scan amplitude (must be divisible by N_STEPS)
 
                   base_frequency, base_frequency*lam1/lam2*mul1, base_frequency*lam1/lam3,  # fit frequency
                   0., 100., # PI gain, reference
-                  50, 200,  # PI gain, l1
-                  100., 200.,  # PI gain, l2
+                  5, 20,  # PI gain, l1
+                  5., 100.,  # PI gain, l2
 
                   1.0, 0.5, -0.5,  # set phase (-PI...PI)
                   0., 0., 0.,  # lock state, 1=lock engaged
@@ -271,6 +271,14 @@ class TransferInterferometer:
         self.params[20] = int(amp2)
         self.set_params()
 
+    def set_current_phase(self, which_laser=1):
+        """Sets the current interferometer phase as the set phase."""
+        if which_laser == 1:
+            print('writing 1')
+            self.ser.write(b'c1')
+        elif which_laser == 2:
+            print('writing 2')
+            self.ser.write(b'c2')
 
 def scan_l1(start_phase=-3.14, stop_phase=3.14, n_steps=10, time_delay=0.1):
     phase_array = np.linspace(start_phase, stop_phase, n_steps)
@@ -305,6 +313,8 @@ def scan_n_steps():
         change_n_steps(n)
         time.sleep(1)
         transfer_interferometer.log_serial(n_rounds=20)
+
+
 
 def continuous_l1_scan(offset=0.0, scanrange=3, time_delay=0.1):
     transfer_interferometer.set_lock_phase(0,offset-scanrange, 0)
