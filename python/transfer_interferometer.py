@@ -276,9 +276,11 @@ class TransferInterferometer:
         if which_laser == 1:
             print('writing 1')
             self.ser.write(b'c1')
+            self.get_params()
         elif which_laser == 2:
             print('writing 2')
             self.ser.write(b'c2')
+            self.get_params()
 
 def scan_l1(start_phase=-3.14, stop_phase=3.14, n_steps=10, time_delay=0.1):
     phase_array = np.linspace(start_phase, stop_phase, n_steps)
